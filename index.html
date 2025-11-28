@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Secret Santa 2025</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #fff8f0;
+      padding: 2rem;
+      text-align: center;
+      color: #333;
+    }
+    h1 { color: #b30000; }
+    select, input, button {
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+    #pinList {
+      margin-top: 1.5rem;
+      font-family: monospace;
+      background: #f5f5f5;
+      padding: 1rem;
+      display: none;
+      border-radius: 6px;
+    }
+    .result {
+      margin-top: 1rem;
+      font-weight: bold;
+      color: green;
+    }
+    .error { color: red; }
+    pre {
+      text-align: left;
+      display: inline-block;
+      margin-top: 1rem;
+      background: #eee;
+      padding: 1rem;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🎅 Secret Santa 2025 🎄</h1>
+<p>Select your name and enter your PIN to see who you're Secret Santa for.</p>
+
+<form id="santaForm">
+  <select id="name" required>
+    <option value="">-- Select Your Name --</option>
+  </select>
+  <br/>
+  <input type="password" id="pin" placeholder="Enter your 4-digit PIN" maxlength="4" required />
+  <br/>
+  <button type="submit">Reveal</button>
+</form>
+
+<div id="result" class="result"></div>
+<div id="pinList"></div>
+
+<script>
+  // === Seeded PRNG Setup ===
+  function xmur3(str) {
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = h << 13 | h >>> 19;
+    }
+    return function() {
+      h = Math.imul(h ^ h >>> 16, 2246822507);
+      h = Math.imul(h ^ h >>> 13, 3266489909);
+      return (h ^= h >>> 16) >>> 0;
+    };
+  }
+
+  function mulberry32(a) {
+    return function() {
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // === Configuration ===
+  const SEED = "santa-2025-18"; // 🔒 Controls the deterministic output
+  const ADMIN_KEY = "letmein";
+
+  const people = [
+    "Alexandria", "Khalid", "Eric",
+    "Vince", "Karen", "Veronica", "Mike"
+  ];
+
+  const cantHave = {
+    "Alexandria": ["Khalid"],
+    "Khalid": ["Alexandria"],
+    "Eric": ["Vince"],
+    "Vince": ["Eric"],
+    "Veronica": ["Mike"],
+    "Mike": ["Veronica"],
+  };
+
+  const prng = mulberry32(xmur3(SEED)());
+
+  function seededShuffle(array) {
+    let a = [...array];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(prng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function allowed(giver, receiver) {
+    if (giver === receiver) return false;
+    if (cantHave[giver]?.includes(receiver)) return false;
+    return true;
+  }
+
+  function generateAssignments() {
+    let givers = [...people];
+    let attempt = 0;
+    let success = false;
+    let matches = {};
+
+    while (attempt++ < 1000 && !success) {
+      let receivers = seededShuffle(people);
+      matches = {};
+      let used = new Set();
+
+      success = givers.every(giver => {
+        const options = receivers.filter(r => allowed(giver, r) && !used.has(r));
+        if (options.length === 0) return false;
+
+        const chosen = options[0];
+        matches[giver] = chosen;
+        used.add(chosen);
+        return true;
+      });
+    }
+
+    if (!success) {
+      alert("Could not create valid assignments.");
+      return null;
+    }
+
+    return matches;
+  }
+
+  function generatePINs() {
+    const pinMap = {};
+    for (let person of people) {
+      const pin = Math.floor(prng() * 9000) + 1000;
+      pinMap[person] = pin.toString();
+    }
+    return pinMap;
+  }
+
+  function getQueryParam(key) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(key);
+  }
+
+  function showPINs(pins) {
+    const div = document.getElementById("pinList");
+    let list = "<h3>🔐 PIN List (For Admin)</h3><pre>";
+    for (const person of people) {
+      list += `${person}: ${pins[person]}\n`;
+    }
+    list += "</pre>";
+    div.innerHTML = list;
+    div.style.display = "block";
+  }
+
+  function showAssignments(matches) {
+    const div = document.createElement("div");
+    let list = "<h3>🕵️ Assignment Debug View</h3><pre>";
+    for (const person of people) {
+      list += `${person} → ${matches[person]}\n`;
+    }
+    list += "</pre>";
+    div.innerHTML = list;
+    document.body.appendChild(div);
+  }
+
+  // === Initialization ===
+  const matches = generateAssignments();
+  const pins = generatePINs();
+
+  const isAdmin = getQueryParam("admin") === ADMIN_KEY;
+  const DEBUG_MODE = getQueryParam("debug") === "1";
+
+  if (isAdmin) {
+    showPINs(pins);
+    if (DEBUG_MODE) {
+      showAssignments(matches);
+    }
+  }
+
+  // Populate dropdown
+  const nameSelect = document.getElementById("name");
+  for (const person of people) {
+    const option = document.createElement("option");
+    option.value = person;
+    option.textContent = person;
+    nameSelect.appendChild(option);
+  }
+
+  // Form submission
+  document.getElementById("santaForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    const name = nameSelect.value;
+    const enteredPIN = document.getElementById("pin").value;
+    const resultDiv = document.getElementById("result");
+
+    if (!pins[name]) {
+      resultDiv.textContent = "Invalid name.";
+      resultDiv.className = "result error";
+      return;
+    }
+
+    if (pins[name] === enteredPIN) {
+      resultDiv.textContent = `🎁 ${name}, you are Secret Santa for: ${matches[name]}`;
+      resultDiv.className = "result";
+    } else {
+      resultDiv.textContent = "❌ Incorrect PIN.";
+      resultDiv.className = "result error";
+    }
+  });
+</script>
+
+</body>
+</html>
